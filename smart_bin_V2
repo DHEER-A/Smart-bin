@@ -1,0 +1,271 @@
+/* This is the code which is used for the smart bin written by Devaraj Dheepak Chakaravathi which utilizes a p10 display for the message
+a Raspberry pi for waste detection
+servos for opening and closing the bin
+ultrasonic sensors for dispose detection
+lastly a barcode reader for reading the ID card data */
+
+
+#include <SPI.h>
+#include <DMD2.h>
+#include <fonts/SystemFont5x7.h>
+#include <Servo.h>
+#include <SoftwareSerial.h>
+
+#define DISPLAYS_ACROSS 1
+#define DISPLAYS_DOWN 1
+
+
+Servo MG996R1;
+Servo MG996R2;
+const int middle = 90, l1 = 34, l2 = 35, R1 = 41, R2 = 42, s1 = 1, s2 = 2;
+const int trigPin_b = 2;
+const int echoPin_b = 4;
+
+const int trigPin_n = 10;
+const int echoPin_n = 12;
+
+int no_waste_dis = 30;         //change the value as needed
+
+SoftDMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
+DMD_TextBox box(dmd, 0, 4, 34, 0); // Adjust size for your display
+
+void scrollMessage(const char *msg, int delayTime = 200) {
+  box.clear();
+  while (*msg) {
+    box.print(*msg);     // Print one character
+    Serial.print(*msg);  // Echo to Serial
+    delay(delayTime);    
+    msg++;
+  }
+  delay(1000);
+}
+
+void setup() {
+  Serial.begin(9600);
+  MG996R1.attach(9);      //Arduino Pin 9
+  MG996R1.write(middle);  // Start at neutral position
+  MG996R2.attach(11);      //Arduino Pin 9
+  MG996R2.write(middle);
+  dmd.setBrightness(255);
+  dmd.selectFont(SystemFont5x7);
+  dmd.begin();
+  pinMode(trigPin_b, OUTPUT);
+  pinMode(echoPin_b, INPUT);
+  pinMode(trigPin_n, OUTPUT);
+  pinMode(echoPin_n, INPUT);
+  pinMode(A0, OUTPUT);               //For controlling Raspberry pi
+  delay(500);
+}
+
+void biobin() {
+  int flag = 0;
+  
+  //open sequence of servo
+  clockwiseMovement(l2, s1);
+
+  while(flag!=1) {
+
+    float duration, distance;
+    digitalWrite(trigPin_b, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin_b, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin_b, LOW);
+
+    duration = pulseIn(echoPin_b, HIGH);
+    distance = (duration*.0343)/2;
+    Serial.print("Distance: ");
+    Serial.println(distance);
+    delay(100);
+
+    if (distance > no_waste_dis){
+      flag = 1;
+    }     
+
+    delay(2500);
+
+  }
+  
+  //closing sequence of servo
+  anticlockwiseMovement(l1, s1);
+
+}
+
+void nonbiobin() {
+  int flag = 0;
+  
+  //opening sequence
+  clockwiseMovement(R2, s2);
+
+  while(flag!=1) {
+
+    float duration, distance;
+    digitalWrite(trigPin_n, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin_n, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin_n, LOW);
+
+    duration = pulseIn(echoPin_n, HIGH);
+    distance = (duration*.0343)/2;
+    Serial.print("Distance: ");
+    Serial.println(distance);
+    delay(100);
+
+    if (distance > no_waste_dis){
+      flag = 1;
+    }     
+
+    delay(2500);
+
+  }
+  
+  //closing sequence
+  anticlockwiseMovement(R1, s2);
+
+}
+
+String receiveData() {
+    String receivedData = Serial.readStringUntil('\n');  // Read incoming data line
+    receivedData.trim(); // Remove any trailing \r or whitespace
+    return receivedData;
+}
+
+void loop() {
+
+  scrollMessage("THANKS, YOUR CREDIT HAS BEEN TRANSFERED", 150);
+
+  // 2. Wait for input from Serial
+  while (!Serial.available()) {
+    // Stay in this loop displaying WAITING until data arrives
+    box.clear();
+    scrollMessage("SMART BIN", 200);
+    delay(100);
+  }
+
+  // 3. Read and scroll the data
+  String received = "HI, " + Serial.readStringUntil('\n');
+  received.trim();
+  delay(3000); // 3-second delay before display
+
+  digitalWrite(A0, HIGH);
+
+  scrollMessage(received.c_str(), 200);
+  scrollMessage(received.c_str(), 200);
+
+  scrollMessage("SHOW THE WASTE", 200);
+  delay(2000);
+
+  while (!Serial.available()) {
+    // Stay in this loop displaying WAITING until data arrives
+    delay(100);
+  }
+
+  if (receiveData() == '0')
+  {
+    scrollMessage("BIO WASTE", 200);
+    Serial.println("BIO bin sequence");
+    biobin();
+  }
+  else if (receiveData() == '1')
+  {
+    scrollMessage("NON-BIO WASTE", 200);
+    Serial.println("NON-BIO bin sequence");
+    nonbiobin();
+  }
+  else 
+  {
+    Serial.println("INVALID RESPONSE");
+  }
+
+  digitalWrite(A0, HIGH);
+
+  // 4. Display "DONE"
+  scrollMessage("DONE", 200);
+
+  // 5. Wait for 10 seconds (ignoring any incoming data)
+  unsigned long cooldownStart = millis();
+  while (millis() - cooldownStart < 4000) {
+    while (Serial.available()) Serial.read(); // Clear input buffer
+    delay(50);
+  }
+}
+
+void clockwiseMovement(int y, int s) {
+  
+    if (s == 1) {
+      Serial.println("Starting 360-degree clockwise rotation... of L");
+      // Complete stop and reset position
+      MG996R1.write(middle);
+      delay(250);  // Longer wait to ensure complete stop
+      MG996R1.write(70);
+      while (1) {
+        int i2 = digitalRead(y);
+        if (i2 == HIGH) 
+        {
+        MG996R1.write(middle);  
+        Serial.println("360-degree Clockwise rotation completed");
+        break;
+        }
+        delay(100);
+      }
+    }
+     
+    else if (s == 2) {
+      Serial.println("Starting 360-degree clockwise rotation... of L");
+      // Complete stop and reset position
+      MG996R2.write(middle);
+      delay(250);  // Longer wait to ensure complete stop
+      MG996R2.write(70);
+      while (1) {
+        int i2 = digitalRead(y);
+        if (i2 == HIGH) 
+        {    
+        MG996R1.write(middle);  
+        Serial.println("360-degree Clockwise rotation completed");
+        break;
+        }
+        delay(100);
+      }
+    } 
+}
+
+
+void anticlockwiseMovement(int x, int s) {
+  
+    if (s == 1) {
+      Serial.println("Starting 360-degree clockwise rotation... of L");
+      // Complete stop and reset position
+      MG996R1.write(middle);
+      delay(250);  // Longer wait to ensure complete stop
+      MG996R1.write(130);
+      while (1) {
+        int i1 = digitalRead(x);
+        if (i1 == HIGH) 
+        {
+        MG996R1.write(middle);  
+        Serial.println("360-degree Clockwise rotation completed");
+        break;
+        }
+        delay(100);
+      }
+    } else if (s == 2) {
+      Serial.println("Starting 360-degree anticlockwise rotation... of R");
+      // Complete stop and reset position
+      Serial.println("Starting 360-degree clockwise rotation... of L");
+      // Complete stop and reset position
+      MG996R2.write(middle);
+      delay(250);  // Longer wait to ensure complete stop
+      MG996R2.write(130);
+      while (1) {
+        int i1 = digitalRead(x);
+        if (i1 == HIGH) 
+        {
+        MG996R2.write(middle);  
+        Serial.println("360-degree Clockwise rotation completed");
+        break;
+        }
+        delay(100);
+      }
+    }
+}
