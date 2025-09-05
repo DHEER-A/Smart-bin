@@ -1,0 +1,323 @@
+/* This is the code which is used for the smart bin written by Devaraj Dheepak Chakaravathi which utilizes a p10 display for the message
+a Raspberry pi for waste detection
+servos for opening and closing the bin
+ultrasonic sensors for dispose detection
+lastly a barcode reader for reading the ID card data */
+
+
+#include <SPI.h>
+#include <DMD2.h>
+#include <fonts/SystemFont5x7.h>
+#include <Servo.h>
+#include <SoftwareSerial.h>
+
+#define DISPLAYS_ACROSS 1
+#define DISPLAYS_DOWN 1
+
+
+Servo MG996R1;
+Servo MG996R2;
+const int open_time = 7000;
+const int middle = 90, left_1 = 27, left_2 = 39, right_1 = A15, right_2 = A13, servo_1 = 1, servo_2 = 2;
+const int trigPin_b = A2;
+const int echoPin_b = A3;
+
+const int trigPin_n = A4;
+const int echoPin_n = A5;
+
+int no_waste_dis = 20;         //change the value as needed
+
+SoftDMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
+DMD_TextBox box(dmd, 0, 4, 34, 0); // Adjust size for your display
+
+void clockwiseMovement(int x, int s);
+void anticlockwiseMovement(int x, int s);
+int debounceButton(int pin);
+
+
+
+void scrollMessage(const char *msg, int delayTime = 200) {
+  box.clear();
+  while (*msg) {
+    box.print(*msg);     // Print one character
+    //Serial.print(*msg);  // Echo to Serial
+    delay(delayTime);    
+    msg++;
+  }
+  delay(1000);
+}
+
+void setup() {
+  Serial.begin(9600);
+  MG996R1.attach(5);      //Arduino Pin 5
+  MG996R1.write(middle);  // Start at neutral position
+  MG996R2.attach(10);      //Arduino Pin 10
+  MG996R2.write(middle);   // Start at neutral position
+  dmd.setBrightness(255);
+  dmd.selectFont(SystemFont5x7);
+  dmd.begin();
+  pinMode(trigPin_b, OUTPUT);
+  pinMode(echoPin_b, INPUT);
+  pinMode(trigPin_n, OUTPUT);
+  pinMode(echoPin_n, INPUT);
+  //pinMode(A0, OUTPUT);               //For controlling Raspberry pi
+  pinMode(2,OUTPUT);
+  pinMode(3,INPUT);
+  delay(500);
+}
+
+void biobin() {
+  int flag1 = 0, flag2 =0, flag = 0;
+  
+  //open sequence of servo
+  clockwiseMovement(left_2, servo_1);
+  unsigned long startTime;
+  startTime = millis();
+  while(flag!=1 && (millis() - startTime <= open_time)) {
+
+    float duration, distance;
+    digitalWrite(trigPin_b, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin_b, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin_b, LOW);
+
+    duration = pulseIn(echoPin_b, HIGH);
+    distance = (duration*.0343)/2;
+    //Serial.print("Distance: ");
+    //Serial.println(distance);
+    //Serial.println(flag);
+    delay(10);
+
+    if ((distance < no_waste_dis) || flag1 == 1){
+      flag1 = 1;
+      if (distance > no_waste_dis)
+      {
+        flag2 = 1;
+      }
+    }     
+    if ((flag1 == 1) && (flag2 == 1))
+    {
+      flag = 1;
+    }    
+  }
+  //closing sequence of servo
+  delay(1000);
+  anticlockwiseMovement(left_1, servo_1);
+}
+
+void nonbiobin() {
+  int flag1 = 0, flag2 =0, flag = 0;
+  //opening sequence
+  clockwiseMovement(right_1, servo_2);
+  unsigned long startTime;
+  startTime = millis();
+  while(flag!=1 && (millis() - startTime <= open_time))
+  {
+    float duration, distance;
+    digitalWrite(trigPin_n, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin_n, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin_n, LOW);
+
+    duration = pulseIn(echoPin_n, HIGH);
+    distance = (duration*.0343)/2;
+    //Serial.print("Distance: ");
+    //Serial.println(distance);
+    delay(10);
+
+    if ((distance < no_waste_dis) || flag1 == 1){
+      flag1 = 1;
+      if (distance > no_waste_dis)
+      {
+        flag2 = 1;
+      }
+    }     
+    if ((flag1 == 1) && (flag2 == 1))
+    {
+      flag = 1;
+    }
+  }  
+  //closing sequence
+  delay(1000);
+  anticlockwiseMovement(right_2, servo_2);
+}
+
+String receiveData() {
+    String receivedData = Serial.readStringUntil('\n');  // Read incoming data line
+    receivedData.trim(); // Remove any trailing \r or whitespace
+    //Serial.println(receivedData);
+    return receivedData;
+
+}
+
+void loop() {
+  
+  // Wait for input from Serial
+  while (!Serial.available()) {
+    // Stay in this loop displaying WAITING until data arrives
+    box.clear();
+    scrollMessage("SMART BIN", 200);
+    delay(100);
+  }
+
+  // 3. Read and scroll the data
+  String ID_name = receiveData();     
+  String received = "HI, " + ID_name;
+  
+  delay(3000); // 3-second delay before display
+
+  //digitalWrite(A0, HIGH);
+
+  scrollMessage(received.c_str(), 125);
+  //scrollMessage(received.c_str(), 200);
+  
+
+  scrollMessage("SHOW THE WASTE", 150);
+  Serial.println(ID_name);
+  delay(250);
+
+
+  while (!Serial.available()) {
+    // Stay in this loop displaying WAITING until data arrives
+    delay(100);
+  }
+  char WasteType = receiveData().charAt(0);
+  if (WasteType == '0')
+  {
+    scrollMessage("BIO WASTE", 200);
+    //Serial.println("BIO bin sequence");
+    biobin();
+  }
+  else if (WasteType == '1')
+  {
+    scrollMessage("NON-BIO WASTE", 200);
+    //Serial.println("NON-BIO bin sequence");
+    nonbiobin();
+  }
+  else 
+  {
+    //Serial.println("INVALID RESPONSE");
+    digitalWrite(2,HIGH);
+    unsigned long startTime;
+    startTime = millis();
+    while (millis() - startTime <= 10000)
+    {
+      if (debounceButton(3) == HIGH){
+        digitalWrite(2,LOW);
+        nonbiobin();
+        break;
+      }
+    }
+    digitalWrite(2,LOW);
+  }
+
+  //digitalWrite(A0, HIGH);
+
+  // 4. Display "DONE"
+  scrollMessage("DONE", 150);
+
+  // 5. Wait for 10 seconds (ignoring any incoming data)
+  unsigned long cooldownStart = millis();
+  while (millis() - cooldownStart < 2000) {
+    while (Serial.available()) Serial.read(); // Clear input buffer
+    delay(50);
+  }
+  scrollMessage("THANKS, YOUR CREDIT HAS BEEN TRANSFERED", 100);
+  delay(500);
+}
+
+void clockwiseMovement(int y, int s) {
+  
+  if (s == 1) {
+    //Serial.println("Starting 360-degree clockwise rotation... of L");
+    // Complete stop and reset position
+    MG996R1.write(middle);
+    delay(250);
+    MG996R1.write(70);
+    unsigned long startTime = millis();
+    while (millis() - startTime < 2500) { //safety timeout
+      if (debounceButton(y) == HIGH) {
+        MG996R1.write(middle);
+        break;
+      }
+    }
+    MG996R1.write(middle);
+      //Serial.println("360-degree Clockwise rotation completed");
+    delay(100);
+  }
+    
+  else if (s == 2) {
+    //Serial.println("Starting 360-degree clockwise rotation... of R");
+    // Complete stop and reset position
+    MG996R2.write(middle);
+    delay(250);
+    MG996R2.write(70);
+    unsigned long startTime = millis();
+    while (millis() - startTime < 2500) { //safety timeout
+      if (debounceButton(y) == HIGH) {
+        MG996R2.write(middle);
+        break;
+      }
+    }
+    MG996R2.write(middle);
+    //Serial.println("360-degree Clockwise rotation completed");
+    delay(100);
+  } 
+}
+
+
+void anticlockwiseMovement(int x, int s) {
+  //Serial.println("Starting 360-degree anticlockwise rotation... of L");
+  //Complete stop and reset position
+  if (s == 1) {
+    MG996R1.write(middle);
+    delay(250);
+    MG996R1.write(130);
+    unsigned long startTime = millis();
+    while (millis() - startTime < 2100) { // safety delay
+      if (debounceButton(x) == HIGH) {
+        MG996R1.write(middle);
+        break;
+      }
+    }
+    MG996R1.write(middle);
+    //Serial.println("360-degree anticlockwise rotation completed");
+    delay(100);
+  } 
+  else if (s == 2) {
+    //Serial.println("Starting 360-degree anticlockwise rotation... of R");
+    //Complete stop and reset position
+    MG996R2.write(middle);
+    delay(250);
+    MG996R2.write(130);
+    unsigned long startTime = millis();
+    while (millis() - startTime < 2100) { //safety delay
+      if (debounceButton(x) == HIGH) {
+        MG996R2.write(middle);
+        break;
+      }
+    }
+    MG996R2.write(middle);
+    //Serial.println("360-degree anticlockwise rotation completed");
+    delay(100);
+  }
+}
+
+int debounceButton(int pin) {
+  static int lastState = LOW;
+  static unsigned long lastDebounceTime = 0;
+
+  int reading = digitalRead(pin);
+
+  if (reading != lastState) {
+    lastDebounceTime = millis(); // reset debounce timer
+  }
+
+  if ((millis() - lastDebounceTime) > 50) { // 50ms debounce delay
+    lastState = reading;
+  }
+
+  return lastState;
+}
