@@ -17,7 +17,7 @@ lastly a barcode reader for reading the ID card data */
 
 Servo MG996R1;
 Servo MG996R2;
-const int open_time = 7000;
+const int open_time = 8500;
 const int middle = 90, left_1 = 27, left_2 = 39, right_1 = A15, right_2 = A13, servo_1 = 1, servo_2 = 2;
 const int trigPin_b = A2;
 const int echoPin_b = A3;
@@ -25,15 +25,12 @@ const int echoPin_b = A3;
 const int trigPin_n = A4;
 const int echoPin_n = A5;
 
-int no_waste_dis = 20;         //change the value as needed
+int no_waste_dis = 25;         //change the value as needed
 
 SoftDMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
 DMD_TextBox box(dmd, 0, 4, 34, 0); // Adjust size for your display
 
-void clockwiseMovement(int x, int s);
-void anticlockwiseMovement(int x, int s);
-int debounceButton(int pin);
-
+void(* resetFunc)(void) = 0;
 
 
 void scrollMessage(const char *msg, int delayTime = 200) {
@@ -75,25 +72,18 @@ void biobin() {
   startTime = millis();
   while(flag!=1 && (millis() - startTime <= open_time)) {
 
-    float duration, distance;
-    digitalWrite(trigPin_b, LOW);
-    delayMicroseconds(2);
-    digitalWrite(trigPin_b, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin_b, LOW);
-
-    duration = pulseIn(echoPin_b, HIGH);
-    distance = (duration*.0343)/2;
-    //Serial.print("Distance: ");
-    //Serial.println(distance);
-    //Serial.println(flag);
-    delay(10);
+    float distance = getDistance(trigPin_b,echoPin_b);
 
     if ((distance < no_waste_dis) || flag1 == 1){
       flag1 = 1;
-      if (distance > no_waste_dis)
-      {
-        flag2 = 1;
+      while(1){
+        delay(300);
+        float distance = getDistance(trigPin_b,echoPin_b);
+        if (distance > 30)
+        {
+          flag2 = 1;
+          break;
+        }
       }
     }     
     if ((flag1 == 1) && (flag2 == 1))
@@ -114,24 +104,20 @@ void nonbiobin() {
   startTime = millis();
   while(flag!=1 && (millis() - startTime <= open_time))
   {
-    float duration, distance;
-    digitalWrite(trigPin_n, LOW);
-    delayMicroseconds(2);
-    digitalWrite(trigPin_n, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin_n, LOW);
 
-    duration = pulseIn(echoPin_n, HIGH);
-    distance = (duration*.0343)/2;
-    //Serial.print("Distance: ");
-    //Serial.println(distance);
-    delay(10);
+    float distance = getDistance(trigPin_n,echoPin_n);
 
     if ((distance < no_waste_dis) || flag1 == 1){
       flag1 = 1;
-      if (distance > no_waste_dis)
-      {
-        flag2 = 1;
+      
+      while(1){
+        delay(300);
+        float distance = getDistance(trigPin_n,echoPin_n);
+        if (distance > 30)
+        {
+          flag2 = 1;
+          break;
+        }
       }
     }     
     if ((flag1 == 1) && (flag2 == 1))
@@ -226,6 +212,8 @@ void loop() {
   }
   scrollMessage("THANKS, YOUR CREDIT HAS BEEN TRANSFERED", 100);
   delay(500);
+  // This delay and infinite loop are used to give the watchdog time to reset the board
+  resetFunc(); 
 }
 
 void clockwiseMovement(int y, int s) {
@@ -255,7 +243,7 @@ void clockwiseMovement(int y, int s) {
     delay(250);
     MG996R2.write(70);
     unsigned long startTime = millis();
-    while (millis() - startTime < 2500) { //safety timeout
+    while (millis() - startTime < 2300) { //safety timeout
       if (debounceButton(y) == HIGH) {
         MG996R2.write(middle);
         break;
@@ -306,18 +294,27 @@ void anticlockwiseMovement(int x, int s) {
 }
 
 int debounceButton(int pin) {
-  static int lastState = LOW;
-  static unsigned long lastDebounceTime = 0;
-
+  
   int reading = digitalRead(pin);
 
-  if (reading != lastState) {
-    lastDebounceTime = millis(); // reset debounce timer
-  }
+  return reading;
+}
 
-  if ((millis() - lastDebounceTime) > 50) { // 50ms debounce delay
-    lastState = reading;
-  }
+float getDistance(int trigPin, int echoPin) {
 
-  return lastState;
+  float duration, distance;
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  duration = pulseIn(echoPin, HIGH);
+  distance = (duration*.0343)/2;
+  //Serial.print("Distance: ");
+  //Serial.println(distance);
+  delay(25);
+
+  return distance;
+
 }
